@@ -1,7 +1,13 @@
 import pandas as pd
 from app.db.supabase import supabase
+from app.ml.utils import predict_category
+from sklearn.ensemble import IsolationForest
+from app.ml.predict import predict_next_month
 
 
+# =========================
+# 🧹 CLEAN DATA
+# =========================
 def clean_data(df):
     df.columns = df.columns.str.lower().str.strip()
 
@@ -25,29 +31,33 @@ def clean_data(df):
     return df
 
 
-# ✅ Save to Supabase
+# =========================
+# 💾 SAVE TO SUPABASE
+# =========================
 def save_to_supabase(df):
     data = df.to_dict(orient="records")
 
-    # ensure JSON serializable
     for row in data:
         row['date'] = str(row['date'])
         row['amount'] = float(row['amount'])
 
     try:
-        response = supabase.table("transactions").insert(data).execute()
-        return response
+        return supabase.table("transactions").insert(data).execute()
     except Exception as e:
         raise Exception(f"Supabase insert failed: {str(e)}")
 
 
-def process_file(file):
+# =========================
+# 📤 PROCESS FILE (WITH AUTH)
+# =========================
+def process_file(file, user_id):
     df = pd.read_csv(file)
     df = clean_data(df)
 
+    df['user_id'] = user_id  # 🔥 multi-user fix
+
     save_to_supabase(df)
 
-    # return safe JSON
     data = df.to_dict(orient="records")
 
     for row in data:
@@ -56,11 +66,18 @@ def process_file(file):
     return data
 
 
-# ✅ Analytics
-def get_analytics():
+# =========================
+# 📊 ANALYTICS + ML (WITH AUTH)
+# =========================
+def get_analytics(user_id):
     try:
-        response = supabase.table("transactions").select("*").execute()
+        response = supabase.table("transactions") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+
         data = response.data
+
     except Exception as e:
         return {"error": str(e)}
 
@@ -69,25 +86,24 @@ def get_analytics():
 
     df = pd.DataFrame(data)
 
+    # safe conversion
     df['amount'] = df['amount'].astype(float)
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
 
+    # =========================
+    # 📈 PREDICTION (after cleaning)
+    # =========================
+    prediction_result = predict_next_month(df)
+
+    # only spending
     spending = df[df['amount'] < 0].copy()
 
     total_spent = abs(spending['amount'].sum())
 
-    def categorize(desc):
-        desc = str(desc).lower()
-        if "swiggy" in desc or "zomato" in desc:
-            return "Food"
-        elif "amazon" in desc or "flipkart" in desc:
-            return "Shopping"
-        elif "uber" in desc or "ola" in desc:
-            return "Travel"
-        else:
-            return "Others"
-
-    spending['category'] = spending['description'].apply(categorize)
+    # =========================
+    # 🤖 ML CATEGORY
+    # =========================
+    spending['category'] = spending['description'].apply(predict_category)
 
     category_data = (
         spending.groupby('category')['amount']
@@ -96,6 +112,7 @@ def get_analytics():
         .to_dict()
     )
 
+    # monthly trend
     spending['month'] = spending['date'].dt.to_period('M').astype(str)
 
     monthly_data = (
@@ -105,8 +122,21 @@ def get_analytics():
         .to_dict()
     )
 
+    # =========================
+    # 🚨 ANOMALY DETECTION
+    # =========================
+    anomaly_model = IsolationForest(contamination=0.1)
+
+    spending['anomaly'] = anomaly_model.fit_predict(spending[['amount']])
+
+    anomalies = spending[spending['anomaly'] == -1]
+
+    anomaly_data = anomalies[['description', 'amount']].to_dict(orient="records")
+
     return {
         "total_spent": float(total_spent),
         "category_breakdown": category_data,
-        "monthly_trend": monthly_data
+        "monthly_trend": monthly_data,
+        "prediction": prediction_result,
+        "anomalies": anomaly_data
     }

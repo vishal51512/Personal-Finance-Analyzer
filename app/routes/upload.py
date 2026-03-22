@@ -1,16 +1,18 @@
-from fastapi import APIRouter, UploadFile, File
-import pandas as pd
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from app.services.transaction_service import process_file
 
 router = APIRouter()
 
 @router.post("/upload-transactions")
 async def upload_transactions(file: UploadFile = File(...)):
-    df = pd.read_csv(file.file)
+    try:
+        data = process_file(file.file)
 
-    # convert to dict
-    data = df.to_dict(orient="records")
+        return {
+            "message": "File uploaded successfully",
+            "preview": data[:5],
+            "total_records": len(data)
+        }
 
-    return {
-        "message": "File uploaded successfully",
-        "preview": data[:5]
-    }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

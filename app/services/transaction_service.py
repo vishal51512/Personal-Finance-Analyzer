@@ -1,7 +1,5 @@
 import pandas as pd
-
-# global storage (temporary)
-TRANSACTIONS = []
+from app.db.supabase import supabase
 
 
 def clean_data(df):
@@ -27,33 +25,59 @@ def clean_data(df):
     return df
 
 
-def process_file(file):
-    global TRANSACTIONS
+# ✅ Save to Supabase
+def save_to_supabase(df):
+    data = df.to_dict(orient="records")
 
+    # ensure JSON serializable
+    for row in data:
+        row['date'] = str(row['date'])
+        row['amount'] = float(row['amount'])
+
+    try:
+        response = supabase.table("transactions").insert(data).execute()
+        return response
+    except Exception as e:
+        raise Exception(f"Supabase insert failed: {str(e)}")
+
+
+def process_file(file):
     df = pd.read_csv(file)
     df = clean_data(df)
 
-    TRANSACTIONS = df  # store dataframe
+    save_to_supabase(df)
 
-    return df.to_dict(orient="records")
+    # return safe JSON
+    data = df.to_dict(orient="records")
 
+    for row in data:
+        row['date'] = str(row['date'])
+
+    return data
+
+
+# ✅ Analytics
 def get_analytics():
-    global TRANSACTIONS
+    try:
+        response = supabase.table("transactions").select("*").execute()
+        data = response.data
+    except Exception as e:
+        return {"error": str(e)}
 
-    if TRANSACTIONS is None or len(TRANSACTIONS) == 0:
+    if not data:
         return {"message": "No data available"}
 
-    df = TRANSACTIONS.copy()
+    df = pd.DataFrame(data)
 
-    # only debit = spending
-    spending = df[df['amount'] < 0]
+    df['amount'] = df['amount'].astype(float)
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
 
-    # total spending
+    spending = df[df['amount'] < 0].copy()
+
     total_spent = abs(spending['amount'].sum())
 
-    # category (simple keyword-based)
     def categorize(desc):
-        desc = desc.lower()
+        desc = str(desc).lower()
         if "swiggy" in desc or "zomato" in desc:
             return "Food"
         elif "amazon" in desc or "flipkart" in desc:
@@ -65,7 +89,6 @@ def get_analytics():
 
     spending['category'] = spending['description'].apply(categorize)
 
-    # category breakdown
     category_data = (
         spending.groupby('category')['amount']
         .sum()
@@ -73,7 +96,6 @@ def get_analytics():
         .to_dict()
     )
 
-    # monthly trend
     spending['month'] = spending['date'].dt.to_period('M').astype(str)
 
     monthly_data = (

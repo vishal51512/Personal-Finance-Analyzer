@@ -48,13 +48,11 @@ def save_to_supabase(df):
 
 
 # =========================
-# 📤 PROCESS FILE (WITH AUTH)
+# 📤 PROCESS FILE (NO user_id)
 # =========================
-def process_file(file, user_id):
+def process_file(file):
     df = pd.read_csv(file)
     df = clean_data(df)
-
-    df['user_id'] = user_id  # 🔥 multi-user fix
 
     save_to_supabase(df)
 
@@ -67,13 +65,12 @@ def process_file(file, user_id):
 
 
 # =========================
-# 📊 ANALYTICS + ML (WITH AUTH)
+# 📊 ANALYTICS + ML (NO user_id)
 # =========================
-def get_analytics(user_id):
+def get_analytics():
     try:
         response = supabase.table("transactions") \
             .select("*") \
-            .eq("user_id", user_id) \
             .execute()
 
         data = response.data
@@ -91,13 +88,12 @@ def get_analytics(user_id):
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
 
     # =========================
-    # 📈 PREDICTION (after cleaning)
+    # 📈 PREDICTION
     # =========================
     prediction_result = predict_next_month(df)
 
     # only spending
     spending = df[df['amount'] < 0].copy()
-
     total_spent = abs(spending['amount'].sum())
 
     # =========================
@@ -123,13 +119,14 @@ def get_analytics(user_id):
     )
 
     # =========================
-    # 🚨 ANOMALY DETECTION
+    # 🚨 ANOMALY DETECTION (SAFE)
     # =========================
-    anomaly_model = IsolationForest(contamination=0.1)
-
-    spending['anomaly'] = anomaly_model.fit_predict(spending[['amount']])
-
-    anomalies = spending[spending['anomaly'] == -1]
+    if len(spending) > 1:
+        anomaly_model = IsolationForest(contamination=0.1)
+        spending['anomaly'] = anomaly_model.fit_predict(spending[['amount']])
+        anomalies = spending[spending['anomaly'] == -1]
+    else:
+        anomalies = pd.DataFrame()
 
     anomaly_data = anomalies[['description', 'amount']].to_dict(orient="records")
 

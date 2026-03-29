@@ -3,10 +3,11 @@ from app.db.supabase import supabase
 from app.ml.utils import predict_category
 from sklearn.ensemble import IsolationForest
 from app.ml.predict import predict_next_month
+from app.utils.parser import parse_file
 
 
 # =========================
-# 🧹 CLEAN DATA
+# 🧹 CLEAN DATA (ROBUST)
 # =========================
 def clean_data(df):
     df.columns = df.columns.str.lower().str.strip()
@@ -16,17 +17,21 @@ def clean_data(df):
         if col not in df.columns:
             raise ValueError(f"Missing column: {col}")
 
+    # 🔥 robust amount cleaning
     df['amount'] = (
         df['amount']
         .astype(str)
-        .replace('[₹,]', '', regex=True)
-        .astype(float)
+        .str.replace('[^0-9.-]', '', regex=True)
     )
 
-    df['type'] = df['amount'].apply(lambda x: 'debit' if x < 0 else 'credit')
-    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
 
-    df = df.dropna(subset=['date', 'amount'])
+    df = df.dropna(subset=['amount'])
+
+    df['type'] = df['amount'].apply(lambda x: 'debit' if x < 0 else 'credit')
+
+    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+    df = df.dropna(subset=['date'])
 
     return df
 
@@ -48,13 +53,22 @@ def save_to_supabase(df):
 
 
 # =========================
-# 📤 PROCESS FILE (WITH AUTH)
+# 📤 PROCESS FILE (CSV + PDF + DOC)
 # =========================
 def process_file(file, user_id):
-    df = pd.read_csv(file)
-    df = clean_data(df)
+    filename = getattr(file, "name", "file.csv")
 
-    df['user_id'] = user_id  # 🔥 multi-user fix
+    if filename.endswith(".csv"):
+        df = pd.read_csv(file)
+        df = clean_data(df)
+    else:
+        # save temp file
+        with open("temp_file", "wb") as f:
+            f.write(file.read())
+
+        df = parse_file("temp_file")
+
+    df['user_id'] = user_id
 
     save_to_supabase(df)
 
@@ -67,7 +81,7 @@ def process_file(file, user_id):
 
 
 # =========================
-# 📊 ANALYTICS + ML (WITH AUTH)
+# 📊 ANALYTICS + ML
 # =========================
 def get_analytics(user_id):
     try:
@@ -86,23 +100,21 @@ def get_analytics(user_id):
 
     df = pd.DataFrame(data)
 
-    # safe conversion
-    df['amount'] = df['amount'].astype(float)
+    # 🔥 safe conversion
+    df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
 
-    # =========================
-    # 📈 PREDICTION (after cleaning)
-    # =========================
+    df = df.dropna(subset=['amount', 'date'])
+
+    # prediction
     prediction_result = predict_next_month(df)
 
-    # only spending
+    # spending
     spending = df[df['amount'] < 0].copy()
 
     total_spent = abs(spending['amount'].sum())
 
-    # =========================
-    # 🤖 ML CATEGORY
-    # =========================
+    # ML category
     spending['category'] = spending['description'].apply(predict_category)
 
     category_data = (
@@ -122,9 +134,7 @@ def get_analytics(user_id):
         .to_dict()
     )
 
-    # =========================
-    # 🚨 ANOMALY DETECTION
-    # =========================
+    # anomaly detection
     anomaly_model = IsolationForest(contamination=0.1)
 
     spending['anomaly'] = anomaly_model.fit_predict(spending[['amount']])

@@ -7,3 +7,6 @@ python-dotenv
 python-jose
 scikit-learn
 joblib
+pdfplumber
+python-docx
+requests

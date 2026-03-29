@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from app.routes import upload
 from app.routes import upload, analytics
 
 app = FastAPI()

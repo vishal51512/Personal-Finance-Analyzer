@@ -2,10 +2,11 @@ from jose import jwt, JWTError
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
+from dotenv import load_dotenv
 
 security = HTTPBearer()
 
-JWT_SECRET = os.getenv("112a3acd-f3e9-4296-aa6a-9277a27f3add")
+JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 ALGORITHM = "HS256"
 
 

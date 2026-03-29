@@ -1,11 +1,9 @@
 import joblib
 
-import joblib
-
+# load full pipeline (vectorizer + model)
 model = joblib.load("app/ml/model.pkl")
-vectorizer = joblib.load("app/ml/vectorizer.pkl")
 
 
-def predict_category(description):
-    X = vectorizer.transform([description])
-    return model.predict(X)[0]
+def predict_category(description, merchant=None):
+    text = f"{merchant or ''} {description}"
+    return model.predict([text])[0]

@@ -1,34 +1,50 @@
 import pandas as pd
+import joblib
+from sklearn.pipeline import Pipeline
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
-import joblib
 
-# sample training data
+
+# =========================
+# 📊 Better Dataset
+# =========================
 data = {
     "description": [
         "Swiggy order", "Zomato food", "Uber ride", "Ola cab",
         "Amazon shopping", "Flipkart order", "Electricity bill",
-        "Netflix subscription", "Salary credit"
+        "Netflix subscription", "Salary credit",
+        "Petrol pump", "Gas bill", "Movie ticket",
+        "Train booking", "Flight ticket", "Restaurant dinner",
+        "Grocery shopping", "Milk purchase"
     ],
     "category": [
         "Food", "Food", "Travel", "Travel",
         "Shopping", "Shopping", "Bills",
-        "Bills", "Income"
+        "Bills", "Income",
+        "Travel", "Bills", "Entertainment",
+        "Travel", "Travel", "Food",
+        "Food", "Food"
     ]
 }
 
 df = pd.DataFrame(data)
 
-# text → features
-vectorizer = TfidfVectorizer()
-X = vectorizer.fit_transform(df["description"])
 
-# model
-model = RandomForestClassifier()
-model.fit(X, df["category"])
+# =========================
+# 🧠 PIPELINE (IMPORTANT)
+# =========================
+pipeline = Pipeline([
+    ("tfidf", TfidfVectorizer(lowercase=True, stop_words="english")),
+    ("model", RandomForestClassifier(n_estimators=100))
+])
 
-# save model
-joblib.dump(model, "app/ml/model.pkl")
-joblib.dump(vectorizer, "app/ml/vectorizer.pkl")
+# train
+pipeline.fit(df["description"], df["category"])
 
-print("Model trained and saved 🚀")
+
+# =========================
+# 💾 SAVE (single file)
+# =========================
+joblib.dump(pipeline, "app/ml/model.pkl")
+
+print("✅ Model trained & saved 🚀")

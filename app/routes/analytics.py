@@ -5,4 +5,4 @@ router = APIRouter()
 
 @router.get("/analytics")
 def analytics():
-    return get_analytics()
+    return get_analytics("test_user")  # temporary user
